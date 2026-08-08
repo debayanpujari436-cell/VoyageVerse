@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { generateAiPlan } from "@/lib/ai.functions";
 import { buildSimulation, defaultInput } from "@/lib/sim-engine";
+import { DESTINATIONS } from "@/lib/destinations";
 import { ACCESSIBILITY, INTERESTS, type SimInput } from "@/lib/sim-types";
 import { saveSimulation } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -115,12 +116,18 @@ function SimulatePage() {
           <h2 className="mb-4 text-lg font-semibold">The basics</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Destination">
-              <Input
-                value={form.destination}
-                onChange={(e) => set("destination", e.target.value)}
-                placeholder="Kyoto, Japan"
-                className="rounded-xl"
-              />
+              <Select value={form.destination} onValueChange={(v) => set("destination", v)}>
+                <SelectTrigger className="w-full rounded-xl">
+                  <SelectValue placeholder="Choose a destination" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DESTINATIONS.map((d) => (
+                    <SelectItem key={d.slug} value={`${d.name}, ${d.country}`}>
+                      {d.name}, {d.country}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field label="Start date">
               <Input

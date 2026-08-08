@@ -4,11 +4,16 @@ import { z } from "zod";
 import { createLovableAiGatewayProvider, AI_MODEL } from "./ai-gateway.server";
 import type { Destination } from "./destinations";
 
-const InputSchema = z.object({
-  prompt: z.string().min(1),
+const ChatMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
 });
 
-const DestinationSchema = z.object({
+const InputSchema = z.object({
+  history: z.array(ChatMessageSchema).min(1),
+});
+
+const DestinationBaseSchema = z.object({
   slug: z.string(),
   name: z.string(),
   country: z.string(),
@@ -34,6 +39,19 @@ const DestinationSchema = z.object({
   imagePrompt: z.string().min(10),
 });
 
+const SuggestedDestinationSchema = DestinationBaseSchema.extend({
+  why: z.string().min(10),
+  estimatedBudget: z.string().min(1),
+  recommendedDuration: z.string().min(1),
+  activities: z.array(z.string()).nonempty(),
+  itinerary: z.array(z.string()).nonempty(),
+});
+
+const ResponseSchema = z.object({
+  questions: z.array(z.string()).optional(),
+  suggestions: z.array(SuggestedDestinationSchema).optional(),
+});
+
 function extractJson(text: string): string | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const raw = fenced?.[1] ?? text;
@@ -57,36 +75,53 @@ export const generateDestination = createServerFn({ method: "POST" })
     if (!key) throw new Error("AI is not configured yet.");
 
     const gateway = createLovableAiGatewayProvider(key);
-    const prompt = `Create a unique travel destination recommendation for VoyageVerse. Use the user's preference to shape the destination, and return only valid JSON with no markdown or extra text.
+    const conversation = data.history
+      .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`)
+      .join("\n");
 
-User request: ${data.prompt}
+    const prompt = `You are a smart VoyageVerse travel assistant that helps travellers discover unusual trips. Based on the conversation below, either ask 2-4 intelligent follow-up questions or return 3 highly unusual destination suggestions.
 
-Return exactly one object with these fields:
+Conversation:
+${conversation}
+
+Return valid JSON only using exactly these fields:
 {
-  "slug": "",
-  "name": "",
-  "country": "",
-  "tagline": "",
-  "dailyBudget": 0,
-  "score": 0,
-  "tags": [""],
-  "season": "",
-  "metrics": {
-    "weather": 0,
-    "food": 0,
-    "nightlife": 0,
-    "safety": 0,
-    "transport": 0,
-    "shopping": 0,
-    "family": 0,
-    "adventure": 0,
-    "internetMbps": 0,
-    "visaDifficulty": 0,
-    "hotelPrice": 0,
-    "mealPrice": 0
-  },
-  "imagePrompt": ""
-}`;
+  "questions": ["..."],
+  "suggestions": [
+    {
+      "slug": "",
+      "name": "",
+      "country": "",
+      "tagline": "",
+      "dailyBudget": 0,
+      "score": 0,
+      "tags": [""],
+      "season": "",
+      "metrics": {
+        "weather": 0,
+        "food": 0,
+        "nightlife": 0,
+        "safety": 0,
+        "transport": 0,
+        "shopping": 0,
+        "family": 0,
+        "adventure": 0,
+        "internetMbps": 0,
+        "visaDifficulty": 0,
+        "hotelPrice": 0,
+        "mealPrice": 0
+      },
+      "imagePrompt": "",
+      "why": "",
+      "estimatedBudget": "",
+      "recommendedDuration": "",
+      "activities": [""],
+      "itinerary": [""]
+    }
+  ]
+}
+
+If you still need more details, return only questions and omit suggestions. If you have enough detail, return only suggestions and omit questions. Do not include markdown, explanation, or extra fields.`;
 
     const result = streamText({ model: gateway(AI_MODEL), prompt });
     const text = await result.text;
@@ -94,33 +129,30 @@ Return exactly one object with these fields:
     if (!raw) throw new Error("AI response did not include valid JSON.");
 
     const parsed = JSON.parse(raw);
-    const destination = DestinationSchema.parse(parsed);
+    const response = ResponseSchema.parse(parsed);
 
-    const imageResult = await generateImage({
-      model: "google/gemini-3.6-flash",
-      prompt: destination.imagePrompt,
-      size: "1024x768",
-      n: 1,
-    });
+    let imageSuggestions = response.suggestions;
+    if (imageSuggestions?.length) {
+      imageSuggestions = await Promise.all(
+        imageSuggestions.map(async (suggestion) => {
+          const imageResult = await generateImage({
+            model: "google/gemini-3.6-flash",
+            prompt: suggestion.imagePrompt,
+            size: "1024x768",
+            n: 1,
+          });
 
-    const file = imageResult.images[0];
-    if (!file) throw new Error("Image generation failed.");
+          const file = imageResult.images[0];
+          if (!file) throw new Error("Image generation failed.");
 
-    const imageUrl = `data:${file.mediaType};base64,${file.base64}`;
-    const slug = slugify(destination.slug || `${destination.name}-${destination.country}`);
+          return {
+            ...suggestion,
+            image: `data:${file.mediaType};base64,${file.base64}`,
+            slug: slugify(suggestion.slug || `${suggestion.name}-${suggestion.country}`),
+          };
+        }),
+      );
+    }
 
-    return {
-      destination: {
-        slug,
-        name: destination.name,
-        country: destination.country,
-        image: imageUrl,
-        tagline: destination.tagline,
-        dailyBudget: destination.dailyBudget,
-        score: destination.score,
-        tags: destination.tags,
-        season: destination.season,
-        metrics: destination.metrics,
-      } as Destination,
-    };
+    return { questions: response.questions, suggestions: imageSuggestions };
   });

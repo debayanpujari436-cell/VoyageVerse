@@ -129,8 +129,8 @@ function addDays(iso: string, n: number) {
   return d.toISOString().slice(0, 10);
 }
 
-export function buildSimulation(input: SimInput, weights = DEFAULT_WEIGHTS): Simulation {
-  const dest = findDestination(input.destination);
+export function buildSimulation(input: SimInput, weights = DEFAULT_WEIGHTS, destinationOverride?: Destination): Simulation {
+  const dest = destinationOverride ?? findDestination(input.destination);
   const seed = hash(input.destination + input.startDate + input.days + input.style);
   const r = rng(seed);
   const pins = makePins(seed);

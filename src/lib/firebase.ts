@@ -1,4 +1,5 @@
 import { initializeApp, type FirebaseApp } from "firebase/app";
+import { collection, getFirestore, type Firestore } from "firebase/firestore";
 import {
   getAuth,
   GoogleAuthProvider,
@@ -22,7 +23,9 @@ const firebaseConfig = {
 };
 
 let firebaseApp: FirebaseApp | null = null;
+let firestoreInstance: Firestore | null = null;
 let authInstance: ReturnType<typeof getAuth> | null = null;
+
 
 function initializeFirebaseApp() {
   if (typeof window === "undefined") {
@@ -35,6 +38,14 @@ function initializeFirebaseApp() {
 
   return firebaseApp;
 }
+//change
+function getFirestoreInstance() {
+  if (!firestoreInstance) {
+    const app = initializeFirebaseApp();
+    firestoreInstance = getFirestore(app);
+  }
+  return firestoreInstance;
+}
 
 function getAuthInstance() {
   if (!authInstance) {
@@ -42,6 +53,14 @@ function getAuthInstance() {
     authInstance = getAuth(firebaseApp!);
   }
   return authInstance;
+}
+
+export function getFirestoreCurrentUserId() {
+  return getAuthInstance().currentUser?.uid ?? null;
+}
+
+export function getFirestoreUserSimulationsCollection(userId: string) {
+  return collection(getFirestoreInstance(), "users", userId, "simulations");
 }
 
 export function signInWithGoogle() {
